@@ -1,0 +1,123 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  REVIEWER
+  MEMBER
+}
+
+enum DocumentType {
+  CONTRACT
+  AGREEMENT
+  CORPORATE
+  EMPLOYMENT
+  POLICY
+  REGULATION
+  OTHER
+}
+
+enum ComplianceStatus {
+  PENDING
+  PROCESSING
+  COMPLIANT
+  REVIEW_REQUIRED
+  HIGH_RISK
+  FAILED
+}
+
+model Organization {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  users       User[]
+  documents   Document[]
+  lawRefs     LawReference[]
+
+  @@index([slug])
+}
+
+model User {
+  id             String        @id @default(uuid())
+  clerkUserId    String        @unique
+  organizationId String?
+  email          String        @unique
+  firstName      String?
+  lastName       String?
+  role           UserRole      @default(MEMBER)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  documents      Document[]    @relation("UploadedBy")
+
+  @@index([organizationId])
+}
+
+model Document {
+  id               String             @id @default(cuid())
+  organizationId   String
+  uploadedById     String?
+  title            String
+  type             DocumentType       @default(OTHER)
+  mimeType         String?
+  fileName         String?
+  rawText          String             @db.Text
+  chunkCount       Int                @default(0)
+  complianceStatus ComplianceStatus   @default(PENDING)
+  riskScore        Float?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy       User?              @relation("UploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  results          ComplianceResult[]
+
+  @@index([organizationId, createdAt])
+  @@index([complianceStatus])
+}
+
+model ComplianceResult {
+  id               String           @id @default(cuid())
+  documentId       String
+  modelName        String?
+  promptVersion    String?
+  overallSummary   String?          @db.Text
+  risks            Json
+  retrievedContext Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  document         Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, createdAt])
+}
+
+model LawReference {
+  id             String       @id @default(cuid())
+  organizationId String?
+  sourceTitle    String
+  sourceType     String?
+  citation       String?
+  article        String?
+  paragraphLabel String?
+  content        String       @db.Text
+  contentHash    String?      @unique
+  embedding      Unsupported("vector(768)")?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([sourceTitle])
+  @@index([citation])
+}

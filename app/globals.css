@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 14% 98%;
+    --foreground: 200 7% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 200 7% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 200 7% 11%;
+    --primary: 217 75% 15%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 189 80% 50%;
+    --secondary-foreground: 199 100% 9%;
+    --muted: 210 9% 95%;
+    --muted-foreground: 220 5% 30%;
+    --accent: 210 9% 95%;
+    --accent-foreground: 217 75% 15%;
+    --destructive: 0 76% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 79%;
+    --input: 210 9% 95%;
+    --ring: 189 80% 50%;
+    --radius: 0.75rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-surface text-foreground font-sans antialiased;
+    background-image: radial-gradient(circle at top, rgba(72, 225, 254, 0.08), transparent 28%);
+  }
+}
+
+@layer utilities {
+  .surface-panel {
+    @apply rounded-lg bg-card text-card-foreground;
+  }
+
+  .authority-label {
+    @apply text-[0.7rem] font-semibold uppercase tracking-authority text-muted-foreground;
+  }
+
+  .ghost-border {
+    box-shadow: inset 0 0 0 1px rgba(197, 198, 207, 0.15);
+  }
+}
