@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { ArrowUpRight, FileText, Gavel, ShieldAlert, ShieldCheck, Sparkles } from "lucide-react";
 import type { ComplianceStatus } from "@prisma/client";
 
+import { DeleteDocumentButton } from "@/components/documents/delete-document-button";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -194,6 +195,7 @@ export function DashboardContent({
                       <th className="px-6 py-4 font-medium">Type</th>
                       <th className="px-6 py-4 font-medium">Compliance Status</th>
                       <th className="px-6 py-4 font-medium">Upload Date</th>
+                      <th className="px-6 py-4 text-right font-medium">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -208,11 +210,22 @@ export function DashboardContent({
                           <td className="px-6 py-4 text-muted-foreground">
                             {new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(document.createdAt))}
                           </td>
+                          <td className="px-6 py-4">
+                            <div className="flex justify-end gap-2">
+                              <Link
+                                href={`/documents/${document.id}`}
+                                className="inline-flex items-center gap-2 rounded-full bg-surface-low px-4 py-2 text-sm font-medium text-foreground transition hover:bg-surface-high"
+                              >
+                                Open <ArrowUpRight className="h-4 w-4" />
+                              </Link>
+                              <DeleteDocumentButton documentId={document.id} documentTitle={document.title} />
+                            </div>
+                          </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={4} className="px-6 py-10 text-center text-muted-foreground">
+                        <td colSpan={5} className="px-6 py-10 text-center text-muted-foreground">
                           Belum ada dokumen yang diunggah. Klik “Unggah Dokumen Baru” untuk memulai.
                         </td>
                       </tr>

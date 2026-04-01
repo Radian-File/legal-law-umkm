@@ -2,7 +2,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { ComplianceStatus, DocumentType, Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 
-import { analyzeDocumentTextWithGemini } from "@/lib/compliance-analysis";
+import { analyzeDocumentTextWithGroq } from "@/lib/compliance-analysis";
 import { parseDocumentInput, parseRawText } from "@/lib/document-parser";
 import { prisma } from "@/lib/prisma";
 
@@ -109,7 +109,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      const issues = await analyzeDocumentTextWithGemini(parsedDocument.rawText);
+      const issues = await analyzeDocumentTextWithGroq(parsedDocument.rawText);
       const riskScore = calculateRiskScore(issues);
       const complianceStatus = deriveComplianceStatus(issues);
       const overallSummary = buildOverallSummary(issues);
@@ -118,8 +118,8 @@ export async function POST(request: Request) {
         prisma.complianceResult.create({
           data: {
             documentId: document.id,
-            modelName: "gemini-3.1-pro-preview",
-            promptVersion: "v1-strict-json-array",
+            modelName: process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile",
+            promptVersion: "v1-groq-json-issues",
             overallSummary,
             risks: issues as unknown as Prisma.InputJsonValue,
             retrievedContext: Prisma.JsonNull,
@@ -156,9 +156,18 @@ export async function POST(request: Request) {
       });
 
       const message = analysisError instanceof Error ? analysisError.message : "Unknown analysis error.";
-      const warning = message.toLowerCase().includes("model") && message.toLowerCase().includes("not found")
-        ? "Document uploaded successfully, but Gemini model configuration is invalid for the current API version."
-        : "Document uploaded successfully, but AI analysis failed.";
+      const lowered = message.toLowerCase();
+      const warning = lowered.includes("missing groq_api_key")
+        ? "Document uploaded successfully, but GROQ_API_KEY is missing."
+        : lowered.includes("authentication")
+          ? "Document uploaded successfully, but Groq authentication failed."
+          : lowered.includes("quota") || lowered.includes("429") || lowered.includes("rate limit")
+            ? "Document uploaded successfully, but Groq quota or rate limit was exceeded."
+            : lowered.includes("model") && lowered.includes("unavailable")
+              ? `Document uploaded successfully, but the Groq model is unavailable. Check GROQ_MODEL (current: ${process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile"}).`
+              : lowered.includes("parse groq response")
+                ? "Document uploaded successfully, but Groq returned an invalid JSON response."
+                : "Document uploaded successfully, but Groq analysis failed.";
 
       return NextResponse.json(
         {

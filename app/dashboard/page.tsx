@@ -1,7 +1,7 @@
 import { currentUser } from "@clerk/nextjs/server";
-import { ComplianceStatus } from "@prisma/client";
 
 import { DashboardContent } from "@/components/dashboard/dashboard-content";
+import { getCurrentAppUser } from "@/lib/current-app-user";
 import { prisma } from "@/lib/prisma";
 
 const regulatoryUpdates = [
@@ -24,25 +24,44 @@ const regulatoryUpdates = [
 ];
 
 export default async function DashboardPage() {
-  const user = await currentUser();
+  const [user, appUser] = await Promise.all([currentUser(), getCurrentAppUser()]);
   const firstName = user?.firstName || user?.emailAddresses?.[0]?.emailAddress?.split("@")[0] || "Pengguna";
 
-  const documents = await prisma.document.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 5,
-    select: {
-      id: true,
-      title: true,
-      type: true,
-      complianceStatus: true,
-      createdAt: true,
-      riskScore: true,
-    },
-  });
+  let documents: Array<{
+    id: string;
+    title: string;
+    type: string;
+    complianceStatus: "COMPLIANT" | "REVIEW_REQUIRED" | "HIGH_RISK" | "PROCESSING" | "PENDING" | "FAILED";
+    createdAt: Date;
+    riskScore: number | null;
+  }> = [];
+  let totalDocuments = 0;
+  let highRiskCount = 0;
+  let compliantCount = 0;
 
-  const totalDocuments = await prisma.document.count();
-  const highRiskCount = await prisma.document.count({ where: { complianceStatus: "HIGH_RISK" } });
-  const compliantCount = await prisma.document.count({ where: { complianceStatus: "COMPLIANT" } });
+  if (appUser) {
+    const ownershipFilter = { uploadedById: appUser.id };
+
+    [documents, totalDocuments, highRiskCount, compliantCount] = await Promise.all([
+      prisma.document.findMany({
+        where: ownershipFilter,
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          complianceStatus: true,
+          createdAt: true,
+          riskScore: true,
+        },
+      }),
+      prisma.document.count({ where: ownershipFilter }),
+      prisma.document.count({ where: { ...ownershipFilter, complianceStatus: "HIGH_RISK" } }),
+      prisma.document.count({ where: { ...ownershipFilter, complianceStatus: "COMPLIANT" } }),
+    ]);
+  }
+
   const recentLawUpdates = regulatoryUpdates.length;
   const healthScore = totalDocuments === 0 ? 0 : Math.round((compliantCount / totalDocuments) * 100);
 

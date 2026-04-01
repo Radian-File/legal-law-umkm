@@ -2,6 +2,7 @@ import Link from "next/link";
 import { FileSearch, FolderOpenDot, Search, Sparkles, UploadCloud } from "lucide-react";
 import { ComplianceStatus } from "@prisma/client";
 
+import { DeleteDocumentButton } from "@/components/documents/delete-document-button";
 import { PageIntro, SectionTitle } from "@/components/documents/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -176,9 +177,12 @@ export default async function DocumentsPage() {
                           </td>
                           <td className="px-6 py-5 text-muted-foreground">{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(document.updatedAt)}</td>
                           <td className="px-6 py-5 text-right">
-                            <Link href={`/documents/${document.id}`} className="inline-flex items-center gap-2 rounded-full bg-surface-low px-4 py-2 text-sm font-medium text-foreground transition hover:bg-surface-high">
-                              Open <FileSearch className="h-4 w-4" />
-                            </Link>
+                            <div className="flex justify-end gap-2">
+                              <Link href={`/documents/${document.id}`} className="inline-flex items-center gap-2 rounded-full bg-surface-low px-4 py-2 text-sm font-medium text-foreground transition hover:bg-surface-high">
+                                Open <FileSearch className="h-4 w-4" />
+                              </Link>
+                              <DeleteDocumentButton documentId={document.id} documentTitle={document.title} />
+                            </div>
                           </td>
                         </tr>
                       );

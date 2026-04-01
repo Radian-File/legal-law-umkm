@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowUpRight, ChevronLeft, FileClock, FileSearch, ShieldCheck, Sparkles } from "lucide-react";
 import { ComplianceStatus } from "@prisma/client";
 
+import { DeleteDocumentButton } from "@/components/documents/delete-document-button";
 import { InsightCard, PageIntro, SectionTitle } from "@/components/documents/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -60,6 +61,14 @@ export default async function DocumentDetailPage({ params }: { params: { id: str
             <Link href="/documents" className={buttonVariants({ variant: "outline", size: "lg", className: "rounded-2xl px-6" })}>
               <ChevronLeft className="h-4 w-4" /> Back to library
             </Link>
+            <DeleteDocumentButton
+              documentId={document.id}
+              documentTitle={document.title}
+              redirectTo="/documents"
+              size="lg"
+              variant="outline"
+              className="rounded-2xl px-6"
+            />
             <Button variant="teal" size="lg" className="rounded-2xl px-6 font-semibold" disabled>
               Download packet
             </Button>

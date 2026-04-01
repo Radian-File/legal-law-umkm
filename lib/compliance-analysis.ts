@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 
 export type ComplianceIssue = {
   clauseText: string;
@@ -7,130 +7,97 @@ export type ComplianceIssue = {
   recommendation: string;
 };
 
-const MODEL_NAME = "gemini-3.1-pro-preview";
-const REQUEST_TIMEOUT_MS = 45_000;
+type ParsedAIResponse = {
+  issues: ComplianceIssue[];
+};
 
-const SYSTEM_INSTRUCTION = `You are an Elite Indonesian Corporate Lawyer with deep expertise in Indonesian corporate law, contract drafting, employment law, PDPL/PDP compliance, fintech regulation, consumer protection, licensing, and enforceability under Indonesian law.
+const DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1";
+const DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile";
+const REQUEST_TIMEOUT_MS = Number.isFinite(Number(process.env.GROQ_TIMEOUT_MS))
+  ? Number(process.env.GROQ_TIMEOUT_MS)
+  : 60_000;
+const MAX_DOCUMENT_CHARS = 18_000;
 
-Your job is to review legal or business documents and identify compliance risks, enforceability problems, ambiguous clauses, missing legal safeguards, and language that may expose the company to regulatory, civil, administrative, or operational risk in Indonesia.
+function getGroqBaseUrl() {
+  return (process.env.GROQ_BASE_URL?.trim() || DEFAULT_GROQ_BASE_URL).replace(/\/$/, "");
+}
 
-You MUST return ONLY a valid JSON array.
-You MUST NOT return markdown.
-You MUST NOT return commentary before or after the JSON.
-You MUST NOT return an object.
-You MUST return an array where every item strictly matches this structure:
-[
-  {
-    "clauseText": "string",
-    "riskLevel": "High Risk" | "Medium Risk" | "Compliant",
-    "reason": "string",
-    "recommendation": "string"
+function getGroqModel() {
+  return process.env.GROQ_MODEL?.trim() || DEFAULT_GROQ_MODEL;
+}
+
+function cleanJSONString(str: string): string {
+  const trimmed = str.trim();
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+
+  if (fencedMatch?.[1]) {
+    return fencedMatch[1].trim();
   }
-]
 
-Rules:
-- clauseText must quote or closely paraphrase the problematic clause from the source text.
-- riskLevel must be exactly one of: "High Risk", "Medium Risk", or "Compliant".
-- reason must explain the legal issue using Indonesian legal reasoning and mention relevant Indonesian law or legal principle where appropriate.
-- recommendation must provide a concrete clause revision suggestion or legal improvement.
-- If the document is generally safe, still return findings for important clauses and mark them as "Compliant" where justified.
-- Never invent laws. If legal basis is uncertain, say so carefully and stay conservative.
-- Keep the analysis factual, professional, and concise.`;
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error(`Gemini request timed out after ${timeoutMs}ms.`));
-    }, timeoutMs);
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1).trim();
+  }
 
-    promise
-      .then((result) => {
-        clearTimeout(timeoutId);
-        resolve(result);
-      })
-      .catch((error) => {
-        clearTimeout(timeoutId);
-        reject(error);
-      });
+  return trimmed.replace(/^`+|`+$/g, "").trim();
+}
+
+function isValidRiskLevel(value: unknown): value is ComplianceIssue["riskLevel"] {
+  return value === "High Risk" || value === "Medium Risk" || value === "Compliant";
+}
+
+function validateParsedResponse(input: unknown): ParsedAIResponse {
+  if (!input || typeof input !== "object" || !Array.isArray((input as { issues?: unknown }).issues)) {
+    throw new Error("AI response does not match the required { issues: [...] } schema.");
+  }
+
+  const issues = (input as { issues: unknown[] }).issues.map((issue, index) => {
+    if (!issue || typeof issue !== "object") {
+      throw new Error(`Issue at index ${index} is not an object.`);
+    }
+
+    const candidate = issue as Record<string, unknown>;
+
+    if (
+      typeof candidate.clauseText !== "string" ||
+      !candidate.clauseText.trim() ||
+      !isValidRiskLevel(candidate.riskLevel) ||
+      typeof candidate.reason !== "string" ||
+      !candidate.reason.trim() ||
+      typeof candidate.recommendation !== "string" ||
+      !candidate.recommendation.trim()
+    ) {
+      throw new Error(`Issue at index ${index} is missing required ComplianceIssue fields.`);
+    }
+
+    return {
+      clauseText: candidate.clauseText.trim(),
+      riskLevel: candidate.riskLevel,
+      reason: candidate.reason.trim(),
+      recommendation: candidate.recommendation.trim(),
+    } satisfies ComplianceIssue;
   });
+
+  return { issues };
 }
 
-function buildPrompt(documentText: string) {
-  return `Review the following document under Indonesian legal and regulatory standards.
-
-Your task:
-1. Identify clauses that create legal, regulatory, enforceability, privacy, employment, licensing, consumer protection, or corporate governance risk in Indonesia.
-2. Flag whether each clause is High Risk, Medium Risk, or Compliant.
-3. Explain the legal reason clearly.
-4. Provide a concrete recommendation to improve the clause.
-5. Return ONLY the required JSON array.
-
-Document text:
-"""
-${documentText}
-"""`;
+function buildSystemPrompt() {
+  return `Anda adalah Ahli Hukum Korporat Senior di Indonesia. Tugas Anda adalah mengaudit dokumen hukum. Anda harus sangat objektif. JIKA sebuah pasal sudah sesuai dengan hukum yang berlaku, Anda WAJIB memberikan status 'Compliant'. Jangan mencari-cari kesalahan yang tidak substansial atau mengada-ada. HANYA gunakan 'High Risk' untuk pelanggaran fatal (seperti di bawah UMP, melanggar hak asasi, denda tak wajar) dan 'Medium Risk' untuk ketidakjelasan administratif.
+Respons HANYA dalam JSON murni: { "issues": [ { "clauseText": "...", "riskLevel": "High Risk" | "Medium Risk" | "Compliant", "reason": "...", "recommendation": "..." } ] }`;
 }
 
-function normalizeIssue(input: unknown): ComplianceIssue | null {
-  if (!input || typeof input !== "object") {
-    return null;
-  }
-
-  const candidate = input as Record<string, unknown>;
-  const clauseText = candidate.clauseText;
-  const riskLevel = candidate.riskLevel;
-  const reason = candidate.reason;
-  const recommendation = candidate.recommendation;
-
-  const validRiskLevel = riskLevel === "High Risk" || riskLevel === "Medium Risk" || riskLevel === "Compliant";
-
-  if (
-    typeof clauseText !== "string" ||
-    !clauseText.trim() ||
-    !validRiskLevel ||
-    typeof reason !== "string" ||
-    !reason.trim() ||
-    typeof recommendation !== "string" ||
-    !recommendation.trim()
-  ) {
-    return null;
-  }
-
-  return {
-    clauseText: clauseText.trim(),
-    riskLevel,
-    reason: reason.trim(),
-    recommendation: recommendation.trim(),
-  };
+function buildUserPrompt(documentText: string) {
+  return `Analisis setiap pasal dalam dokumen hukum berikut. Kelompokkan menjadi maksimal 5 poin analisis utama. Jika dokumen ini dirasa sudah sangat aman dan mematuhi standar hukum ketenagakerjaan atau korporasi Indonesia, pastikan mayoritas atau semua 'riskLevel' bernilai 'Compliant'.
+Dokumen: ${documentText.slice(0, MAX_DOCUMENT_CHARS)}`;
 }
 
-function parseComplianceIssues(rawText: string): ComplianceIssue[] {
-  let parsed: unknown;
-
-  try {
-    parsed = JSON.parse(rawText);
-  } catch (error) {
-    throw new Error(`Failed to parse Gemini JSON response: ${(error as Error).message}`);
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new Error("Gemini response was not a JSON array.");
-  }
-
-  const normalized = parsed.map((item) => normalizeIssue(item)).filter((item): item is ComplianceIssue => Boolean(item));
-
-  if (normalized.length !== parsed.length) {
-    throw new Error("Gemini response did not match the required ComplianceIssue[] schema.");
-  }
-
-  return normalized;
-}
-
-export async function analyzeDocumentTextWithGemini(documentText: string): Promise<ComplianceIssue[]> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+export async function analyzeDocumentTextWithGroq(documentText: string): Promise<ComplianceIssue[]> {
+  const apiKey = process.env.GROQ_API_KEY?.trim();
 
   if (!apiKey) {
-    throw new Error("Missing GEMINI_API_KEY environment variable.");
+    throw new Error("Missing GROQ_API_KEY environment variable.");
   }
 
   const text = documentText.trim();
@@ -139,22 +106,61 @@ export async function analyzeDocumentTextWithGemini(documentText: string): Promi
     throw new Error("documentText is required and must be a non-empty string.");
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: MODEL_NAME,
-    systemInstruction: SYSTEM_INSTRUCTION,
-    generationConfig: {
-      temperature: 0.1,
-      responseMimeType: "application/json",
-    },
+  const client = new OpenAI({
+    apiKey,
+    baseURL: getGroqBaseUrl(),
+    timeout: REQUEST_TIMEOUT_MS,
   });
 
-  const result = await withTimeout(model.generateContent(buildPrompt(text)), REQUEST_TIMEOUT_MS);
-  const responseText = result.response.text();
+  try {
+    const completion = await client.chat.completions.create({
+      model: getGroqModel(),
+      temperature: 0.1,
+      max_tokens: 2048,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: buildSystemPrompt(),
+        },
+        {
+          role: "user",
+          content: buildUserPrompt(text),
+        },
+      ],
+    });
 
-  if (!responseText || !responseText.trim()) {
-    throw new Error("Gemini returned an empty response.");
+    const rawContent = completion.choices[0]?.message?.content;
+
+    if (!rawContent || typeof rawContent !== "string") {
+      throw new Error("Groq returned an empty response.");
+    }
+
+    try {
+      const cleaned = cleanJSONString(rawContent);
+      const parsedData = validateParsedResponse(JSON.parse(cleaned));
+      return parsedData.issues;
+    } catch (error) {
+      console.error("[compliance-analysis] Failed to parse Groq JSON response", {
+        rawContent,
+        error,
+      });
+
+      throw new Error("Failed to parse Groq response as valid JSON.");
+    }
+  } catch (error) {
+    if (error instanceof Error && /401|403|unauthorized|api key/i.test(error.message)) {
+      throw new Error("Groq authentication failed. Check GROQ_API_KEY.");
+    }
+
+    if (error instanceof Error && /429|rate limit|quota/i.test(error.message)) {
+      throw new Error("Groq quota or rate limit exceeded.");
+    }
+
+    if (error instanceof Error && /404|not found|model_decommissioned|model/i.test(error.message)) {
+      throw new Error(`Groq model \"${getGroqModel()}\" is unavailable. Check GROQ_MODEL.`);
+    }
+
+    throw error;
   }
-
-  return parseComplianceIssues(responseText);
 }

@@ -65,17 +65,22 @@ export function DashboardSkeleton() {
           </div>
           <div className="p-0">
             <div className="grid grid-cols-12 gap-4 px-6 py-4">
-              <Skeleton className="col-span-5 h-4" />
+              <Skeleton className="col-span-4 h-4" />
               <Skeleton className="col-span-2 h-4" />
-              <Skeleton className="col-span-3 h-4" />
+              <Skeleton className="col-span-2 h-4" />
+              <Skeleton className="col-span-2 h-4" />
               <Skeleton className="col-span-2 h-4" />
             </div>
             {Array.from({ length: 5 }).map((_, index) => (
               <div key={index} className="grid grid-cols-12 gap-4 border-t border-slate-100 px-6 py-5">
-                <Skeleton className="col-span-5 h-5 w-[85%]" />
+                <Skeleton className="col-span-4 h-5 w-[85%]" />
                 <Skeleton className="col-span-2 h-5 w-[80%]" />
-                <Skeleton className="col-span-3 h-6 w-24 rounded-full" />
+                <Skeleton className="col-span-2 h-6 w-24 rounded-full" />
                 <Skeleton className="col-span-2 h-5 w-[75%]" />
+                <div className="col-span-2 flex justify-end gap-2">
+                  <Skeleton className="h-9 w-20 rounded-full" />
+                  <Skeleton className="h-9 w-20 rounded-full" />
+                </div>
               </div>
             ))}
             <div className="flex items-center justify-between px-6 py-5">
